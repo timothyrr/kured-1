@@ -41,7 +41,8 @@ compatibility of one minor version between client and server:
 
 | kured  | kubectl | k8s.io/client-go | k8s.io/apimachinery | expected kubernetes compatibility |
 |--------|---------|------------------|---------------------|-----------------------------------|
-| master | 1.14.1  | v11.0.0          | release-1.14        | 1.13.x, 1.14.x, 1.15.x            |
+| master | 1.15.10 | v12.0.0          | release-1.15        | 1.15.x, 1.16.x, 1.17.x            |
+| 1.3.0  | 1.15.10 | v12.0.0          | release-1.15        | 1.15.x, 1.16.x, 1.17.x            |
 | 1.2.0  | 1.13.6  | v10.0.0          | release-1.13        | 1.12.x, 1.13.x, 1.14.x            |
 | 1.1.0  | 1.12.1  | v9.0.0           | release-1.12        | 1.11.x, 1.12.x, 1.13.x            |
 | 1.0.0  | 1.7.6   | v4.0.0           | release-1.7         | 1.6.x, 1.7.x, 1.8.x               | 
@@ -59,7 +60,7 @@ To obtain a default installation without Prometheus alerting interlock
 or Slack notifications:
 
 ```
-kubectl apply -f https://github.com/weaveworks/kured/releases/download/1.2.0/kured-1.2.0-dockerhub.yaml
+kubectl apply -f https://github.com/weaveworks/kured/releases/download/1.3.0/kured-1.3.0-dockerhub.yaml
 ```
 
 If you want to customise the installation, download the manifest and
@@ -281,6 +282,11 @@ make
 GO111MODULE=on make
 ```
 
+If you are interested in contributing code to kured, please take a look at
+our [development][development] docs.
+
+[development]: DEVELOPMENT.md
+
 ## Frequently Asked/Anticipated Questions
 
 ### Why is there no `latest` tag on Docker Hub?
@@ -296,7 +302,9 @@ versioned manifest from the [release page](https://github.com/weaveworks/kured/r
 If you have any questions about, feedback for or problems with `kured`:
 
 - Invite yourself to the <a href="https://slack.weave.works/" target="_blank">Weave Users Slack</a>.
-- Ask a question on the [#general](https://weave-community.slack.com/messages/general/) slack channel.
+- Ask a question on the [#kured](https://weave-community.slack.com/messages/kured/) slack channel.
 - [File an issue](https://github.com/weaveworks/kured/issues/new).
+- Join us in [our monthly meeting](https://docs.google.com/document/d/1bsHTjHhqaaZ7yJnXF6W8c89UB_yn-OoSZEmDnIP34n8/edit#),
+  every fourth Wednesday of the month at 16:00 UTC.
 
 Your feedback is always welcome!
