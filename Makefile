@@ -22,10 +22,6 @@ cmd/kured/kured: cmd/kured/*.go
 build/.image.done: cmd/kured/Dockerfile cmd/kured/kured
 	mkdir -p build
 	cp $^ build
-	$(SUDO) docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-	$(SUDO) docker buildx create --use --config /root/config.toml --name auto456 --platform=linux/arm64
-	$(SUDO) docker buildx inspect --bootstrap auto456
-	$(SUDO) docker buildx build --push -t 192.168.1.145:31551/docker/images/kured:$(VERSION) -f build/Dockerfile ./build
 	touch $@
 
 image: build/.image.done
