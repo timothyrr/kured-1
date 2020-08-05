@@ -267,8 +267,10 @@ func drain(nodeID string) {
         }()
 
         select {
-	    case res := <-done:
-		    log.Infof(res)
+	    case err := <-done:
+	        if err := drainCmd.Wait(); err != nil {
+	        	log.Fatalf("Error invoking drain command: %v", err)
+	        }
 	    case <-time.After(drainTimeout):
 	    	// The drain command did not finish within the given time so we kill it,
 	    	// and force a reboot
