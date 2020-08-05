@@ -268,15 +268,15 @@ func drain(nodeID string) {
 
         select {
 	    case err := <-done:
-	        if err := drainCmd.Wait(); err != nil {
+	        if err != nil {
 	        	log.Fatalf("Error invoking drain command: %v", err)
 	        }
-	    case <-time.After(drainTimeout):
+	    case <-time.After(forceTimeout):
 	    	// The drain command did not finish within the given time so we kill it,
 	    	// and force a reboot
 	    	drainCmd.Process.Kill()
 
-	    	log.Errorf("Drain command took longer than specified timeout (%s) so it was killed", drainTimeout)
+	    	log.Errorf("Drain command took longer than specified timeout (%s) so it was killed", forceTimeout)
 		}
 	} else {
 	    if err := drainCmd.Wait(); err != nil {
