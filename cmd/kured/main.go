@@ -257,7 +257,7 @@ func drain(nodeID string) {
 	}
 
 	drainCmd := newCommand("/usr/bin/kubectl", "drain",
-		"--ignore-daemonsets", "--delete-local-data", "--timeout", drainTimeout, "--grace-period", strconv.FormatInt(drainGracePeriod, 10), fmt.Sprintf("--force=%t", forceDrain), nodeID)
+		"--ignore-daemonsets", "--delete-local-data", "--timeout", fmt.Println(drainTimeout), "--grace-period", strconv.FormatInt(drainGracePeriod, 10), fmt.Sprintf("--force=%t", forceDrain), nodeID)
 
 	if err := drainCmd.Start(); err != nil {
 		log.Fatalf("Error invoking drain command: %v", err)
