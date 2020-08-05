@@ -1,7 +1,6 @@
 package daemonsetlock
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -20,17 +19,19 @@ type DaemonSetLock struct {
 }
 
 type lockAnnotationValue struct {
-	NodeID   string      `json:"nodeID"`
-	Metadata interface{} `json:"metadata,omitempty"`
+	NodeID   string        `json:"nodeID"`
+	Metadata interface{}   `json:"metadata,omitempty"`
+	Created  time.Time     `json:"created"`
+	TTL      time.Duration `json:"TTL"`
 }
 
 func New(client *kubernetes.Clientset, nodeID, namespace, name, annotation string) *DaemonSetLock {
 	return &DaemonSetLock{client, nodeID, namespace, name, annotation}
 }
 
-func (dsl *DaemonSetLock) Acquire(metadata interface{}) (acquired bool, owner string, err error) {
+func (dsl *DaemonSetLock) Acquire(metadata interface{}, TTL time.Duration) (acquired bool, owner string, err error) {
 	for {
-		ds, err := dsl.client.AppsV1().DaemonSets(dsl.namespace).Get(context.TODO(), dsl.name, metav1.GetOptions{})
+		ds, err := dsl.client.AppsV1().DaemonSets(dsl.namespace).Get(dsl.name, metav1.GetOptions{})
 		if err != nil {
 			return false, "", err
 		}
@@ -41,20 +42,25 @@ func (dsl *DaemonSetLock) Acquire(metadata interface{}) (acquired bool, owner st
 			if err := json.Unmarshal([]byte(valueString), &value); err != nil {
 				return false, "", err
 			}
+
+			if ttlExpired(value.Created, value.TTL) {
+				return true, value.NodeID, nil
+			}
+
 			return value.NodeID == dsl.nodeID, value.NodeID, nil
 		}
 
 		if ds.ObjectMeta.Annotations == nil {
 			ds.ObjectMeta.Annotations = make(map[string]string)
 		}
-		value := lockAnnotationValue{NodeID: dsl.nodeID, Metadata: metadata}
+		value := lockAnnotationValue{NodeID: dsl.nodeID, Metadata: metadata, Created: time.Now().UTC(), TTL: TTL}
 		valueBytes, err := json.Marshal(&value)
 		if err != nil {
 			return false, "", err
 		}
 		ds.ObjectMeta.Annotations[dsl.annotation] = string(valueBytes)
 
-		_, err = dsl.client.AppsV1().DaemonSets(dsl.namespace).Update(context.TODO(), ds, metav1.UpdateOptions{})
+		_, err = dsl.client.AppsV1().DaemonSets(dsl.namespace).Update(ds)
 		if err != nil {
 			if se, ok := err.(*errors.StatusError); ok && se.ErrStatus.Reason == metav1.StatusReasonConflict {
 				// Something else updated the resource between us reading and writing - try again soon
@@ -69,7 +75,7 @@ func (dsl *DaemonSetLock) Acquire(metadata interface{}) (acquired bool, owner st
 }
 
 func (dsl *DaemonSetLock) Test(metadata interface{}) (holding bool, err error) {
-	ds, err := dsl.client.AppsV1().DaemonSets(dsl.namespace).Get(context.TODO(), dsl.name, metav1.GetOptions{})
+	ds, err := dsl.client.AppsV1().DaemonSets(dsl.namespace).Get(dsl.name, metav1.GetOptions{})
 	if err != nil {
 		return false, err
 	}
@@ -80,6 +86,11 @@ func (dsl *DaemonSetLock) Test(metadata interface{}) (holding bool, err error) {
 		if err := json.Unmarshal([]byte(valueString), &value); err != nil {
 			return false, err
 		}
+
+		if ttlExpired(value.Created, value.TTL) {
+			return true, nil
+		}
+
 		return value.NodeID == dsl.nodeID, nil
 	}
 
@@ -88,7 +99,7 @@ func (dsl *DaemonSetLock) Test(metadata interface{}) (holding bool, err error) {
 
 func (dsl *DaemonSetLock) Release() error {
 	for {
-		ds, err := dsl.client.AppsV1().DaemonSets(dsl.namespace).Get(context.TODO(), dsl.name, metav1.GetOptions{})
+		ds, err := dsl.client.AppsV1().DaemonSets(dsl.namespace).Get(dsl.name, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
@@ -99,7 +110,7 @@ func (dsl *DaemonSetLock) Release() error {
 			if err := json.Unmarshal([]byte(valueString), &value); err != nil {
 				return err
 			}
-			if value.NodeID != dsl.nodeID {
+			if value.NodeID != dsl.nodeID && !ttlExpired(value.Created, value.TTL) {
 				return fmt.Errorf("Not lock holder: %v", value.NodeID)
 			}
 		} else {
@@ -108,7 +119,7 @@ func (dsl *DaemonSetLock) Release() error {
 
 		delete(ds.ObjectMeta.Annotations, dsl.annotation)
 
-		_, err = dsl.client.AppsV1().DaemonSets(dsl.namespace).Update(context.TODO(), ds, metav1.UpdateOptions{})
+		_, err = dsl.client.AppsV1().DaemonSets(dsl.namespace).Update(ds)
 		if err != nil {
 			if se, ok := err.(*errors.StatusError); ok && se.ErrStatus.Reason == metav1.StatusReasonConflict {
 				// Something else updated the resource between us reading and writing - try again soon
@@ -120,4 +131,11 @@ func (dsl *DaemonSetLock) Release() error {
 		}
 		return nil
 	}
+}
+
+func ttlExpired(created time.Time, ttl time.Duration) bool {
+	if ttl > 0 && time.Since(created) >= ttl {
+		return true
+	}
+	return false
 }

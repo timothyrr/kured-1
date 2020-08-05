@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -50,6 +49,8 @@ var (
 	rebootStart string
 	rebootEnd   string
 	timezone    string
+
+	annotationTTL time.Duration
 
 	// Metrics
 	rebootRequiredGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -110,6 +111,9 @@ func main() {
 		"schedule reboot only before this time of day")
 	rootCmd.PersistentFlags().StringVar(&timezone, "time-zone", "UTC",
 		"use this timezone for schedule inputs")
+
+	rootCmd.PersistentFlags().DurationVar(&annotationTTL, "annotation-ttl", 0,
+		"force clean annotation after this ammount of time (default 0, disabled)")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatal(err)
@@ -182,7 +186,7 @@ func rebootBlocked(client *kubernetes.Clientset, nodeID string) bool {
 
 	fieldSelector := fmt.Sprintf("spec.nodeName=%s", nodeID)
 	for _, labelSelector := range podSelectors {
-		podList, err := client.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{
+		podList, err := client.CoreV1().Pods("").List(metav1.ListOptions{
 			LabelSelector: labelSelector,
 			FieldSelector: fieldSelector,
 			Limit:         10})
@@ -218,8 +222,8 @@ func holding(lock *daemonsetlock.DaemonSetLock, metadata interface{}) bool {
 	return holding
 }
 
-func acquire(lock *daemonsetlock.DaemonSetLock, metadata interface{}) bool {
-	holding, holder, err := lock.Acquire(metadata)
+func acquire(lock *daemonsetlock.DaemonSetLock, metadata interface{}, TTL time.Duration) bool {
+	holding, holder, err := lock.Acquire(metadata, TTL)
 	switch {
 	case err != nil:
 		log.Fatalf("Error acquiring lock: %v", err)
@@ -288,7 +292,7 @@ func uncordon(nodeID string) {
 }
 
 func commandReboot(nodeID string) {
-	log.Infof("Commanding reboot for node: %s", nodeID)
+	log.Infof("Commanding reboot")
 
 	if slackHookURL != "" {
 		if err := slack.NotifyReboot(slackHookURL, slackUsername, slackChannel, nodeID); err != nil {
@@ -319,7 +323,7 @@ type nodeMeta struct {
 	Unschedulable bool `json:"unschedulable"`
 }
 
-func rebootAsRequired(nodeID string, window *timewindow.TimeWindow) {
+func rebootAsRequired(nodeID string, window *timewindow.TimeWindow, TTL time.Duration) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		log.Fatal(err)
@@ -344,13 +348,13 @@ func rebootAsRequired(nodeID string, window *timewindow.TimeWindow) {
 	tick := delaytick.New(source, period)
 	for _ = range tick {
 		if window.Contains(time.Now()) && rebootRequired() && !rebootBlocked(client, nodeID) {
-			node, err := client.CoreV1().Nodes().Get(context.TODO(), nodeID, metav1.GetOptions{})
+			node, err := client.CoreV1().Nodes().Get(nodeID, metav1.GetOptions{})
 			if err != nil {
 				log.Fatal(err)
 			}
 			nodeMeta.Unschedulable = node.Spec.Unschedulable
 
-			if acquire(lock, &nodeMeta) {
+			if acquire(lock, &nodeMeta, TTL) {
 				if !nodeMeta.Unschedulable {
 					drain(nodeID)
 				}
@@ -382,8 +386,13 @@ func root(cmd *cobra.Command, args []string) {
 	log.Infof("Reboot Sentinel: %s every %v", rebootSentinel, period)
 	log.Infof("Blocking Pod Selectors: %v", podSelectors)
 	log.Infof("Reboot on: %v", window)
+	if annotationTTL > 0 {
+		log.Infof("Force annotation cleanup after: %v", annotationTTL)
+	} else {
+		log.Info("Force annotation cleanup disabled.")
+	}
 
-	go rebootAsRequired(nodeID, window)
+	go rebootAsRequired(nodeID, window, annotationTTL)
 	go maintainRebootRequiredMetric(nodeID)
 
 	http.Handle("/metrics", promhttp.Handler())
