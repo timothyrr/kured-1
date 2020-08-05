@@ -23,7 +23,7 @@ build/.image.done: cmd/kured/Dockerfile cmd/kured/kured
 	mkdir -p build
 	cp $^ build
 	$(SUDO) docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-	$(SUDO) docker buildx create --use --config $HOME/config.toml --name auto123 --platform=linux/arm64
+	$(SUDO) docker buildx create --use --config \$HOME/config.toml --name auto123 --platform=linux/arm64
 	$(SUDO) docker buildx inspect --bootstrap auto123
 	$(SUDO) docker buildx build --push -t 192.168.1.145:31551/docker/images/kured:$(VERSION) -f build/Dockerfile ./build
 	touch $@
