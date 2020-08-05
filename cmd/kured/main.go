@@ -256,16 +256,26 @@ func drain(nodeID string) {
 		log.Fatalf("Error invoking drain command: %v", err)
 	}
 
-    done := make(chan error)
-    go func() { done <- drainCmd.Wait() }()
-
 	if forceReboot == true {
-		time.After(forceTimeout)
-	    // The drain command did not finish within the given time so we kill it,
-	    // and force a reboot
-	    drainCmd.Process.Kill()
+        done := make(chan error)
+        go func() {
+        	done <- drainCmd.Wait()
+        }()
 
-	    log.Errorf("Drain command took longer than specified timeout (%s) so it was killed", forceTimeout)
+        select {
+	    case res := <-done:
+		    log.Infof(res)
+	    case <-time.After(drainTimeout):
+	    	// The drain command did not finish within the given time so we kill it,
+	    	// and force a reboot
+	    	drainCmd.Process.Kill()
+
+	    	log.Errorf("Drain command took longer than specified timeout (%s) so it was killed", drainTimeout)
+		}
+	} else {
+	    if err := drainCmd.Wait(); err != nil {
+	    	log.Fatalf("Error invoking drain command: %v", err)
+	    }
 	}
 }
 
