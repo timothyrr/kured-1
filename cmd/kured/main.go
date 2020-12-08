@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"regexp"
 	"time"
-	"strconv"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -267,7 +266,7 @@ func drain(client *kubernetes.Clientset, node *v1.Node) {
 		Force:               forceDrain,
 		DeleteLocalData:     true,
 		IgnoreAllDaemonSets: true,
-		Timeout:             forceReboot,
+		Timeout:             forceTimeout,
 		ErrOut:              os.Stderr,
 		Out:                 os.Stdout,
 	}
