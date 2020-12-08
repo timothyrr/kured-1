@@ -32,7 +32,7 @@ var (
 
 	// Command line flags
 	period                 time.Duration
-	drainGracePeriod       int64
+	drainGracePeriod       int
 	dsNamespace            string
 	dsName                 string
 	forceDrain             bool
