@@ -77,7 +77,7 @@ func main() {
 		"enable/disable force drain")
 	rootCmd.PersistentFlags().BoolVar(&forceReboot, "force-reboot", false,
 		"enable/disable force reboot")
-	rootCmd.PersistentFlags().Int64Var(&drainGracePeriod, "drain-grace-period", -1,
+	rootCmd.PersistentFlags().IntVar(&drainGracePeriod, "drain-grace-period", -1,
 		"drain grace period in seconds")
 	rootCmd.PersistentFlags().DurationVar(&forceTimeout, "force-timeout", time.Minute*60,
 		"total timeout which only applies when force-reboot is set to true")
