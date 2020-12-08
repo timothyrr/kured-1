@@ -1,6 +1,6 @@
 image:
   repository: weaveworks/kured
-  tag: 1.4.5
+  tag: 1.5.1
   pullPolicy: IfNotPresent
   pullSecrets: []
 
@@ -20,7 +20,7 @@ extraEnvVars:
 #    value: 123
 
 configuration:
-  annotationTtl: 0          # force clean annotation after this ammount of time (default 0, disabled)
+  lockTtl: 0                # force clean annotation after this ammount of time (default 0, disabled)
   alertFilterRegexp: ""     # alert names to ignore when checking for active alerts
   blockingPodSelector: []   # label selector identifying pods whose presence should prevent reboots
   endTime: ""               # only reboot before this time of day (default "23:59")
@@ -32,6 +32,8 @@ configuration:
   slackChannel: ""          # slack channel for reboot notfications
   slackHookUrl: ""          # slack hook URL for reboot notfications
   slackUsername: ""         # slack username for reboot notfications (default "kured")
+  messageTemplateDrain: ""  # slack message template when notifying about a node being drained (default "Draining node %s")
+  messageTemplateReboot: "" # slack message template when notifying about a node being rebooted (default "Rebooted node %s")
   startTime: ""             # only reboot after this time of day (default "0:00")
   timeZone: ""              # time-zone to use (valid zones from "time" golang package)
 

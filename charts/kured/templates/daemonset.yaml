@@ -45,11 +45,11 @@ spec:
           args:
             - --ds-name={{ template "kured.fullname" . }}
             - --ds-namespace={{ .Release.Namespace }}
-          {{- if .Values.configuration.annotationTtl }}
-            - --annotation-ttl={{ .Values.configuration.annotationTtl }}
+          {{- if .Values.configuration.lockTtl }}
+            - --lock-ttl={{ .Values.configuration.lockTtl }}
           {{- end }}
           {{- if .Values.configuration.alertFilterRegexp }}
-            - --alert-filter-regexp={{ .Values.configuration.alertFilterRegexp | quote }}
+            - --alert-filter-regexp={{ .Values.configuration.alertFilterRegexp }}
           {{- end }}
           {{- range .Values.configuration.blockingPodSelector }}
             - --blocking-pod-selector={{ . }}
@@ -81,6 +81,12 @@ spec:
           {{- if .Values.configuration.slackUsername }}
             - --slack-username={{ .Values.configuration.slackUsername }}
           {{- end }}
+          {{- if .Values.configuration.messageTemplateDrain }}
+            - --message-template-drain={{ .Values.configuration.messageTemplateDrain }}
+          {{- end }}
+          {{- if .Values.configuration.messageTemplateReboot }}
+            - --message-template-reboot={{ .Values.configuration.messageTemplateReboot }}
+          {{- end }}
           {{- if .Values.configuration.startTime }}
             - --start-time={{ .Values.configuration.startTime }}
           {{- end }}
@@ -96,7 +102,7 @@ spec:
           {{- end }}
           ports:
             - containerPort: 8080
-              name: metrics          
+              name: metrics
           env:
             # Pass in the name of the node on which this pod is scheduled
             # for use with drain/uncordon operations and lock acquisition

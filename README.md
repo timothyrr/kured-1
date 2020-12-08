@@ -37,14 +37,16 @@ indicated by the package management system of the underlying OS.
 
 ## Kubernetes & OS Compatibility
 
-The daemon image contains versions of `k8s.io/client-go` and the
-`kubectl` binary for the purposes of maintaining the lock and draining
-worker nodes. Kubernetes aims to provide forwards & backwards
-compatibility of one minor version between client and server:
+The daemon image contains versions of `k8s.io/client-go` and
+`k8s.io/kubectl` (the binary of `kubectl` in older releases) for the purposes of
+maintaining the lock and draining worker nodes. Kubernetes aims to provide
+forwards and backwards compatibility of one minor version between client and
+server:
 
 | kured  | kubectl | k8s.io/client-go | k8s.io/apimachinery | expected kubernetes compatibility |
 |--------|---------|------------------|---------------------|-----------------------------------|
-| master | 1.17.7  | v0.17.0          | v0.17.0             | 1.16.x, 1.17.x, 1.18.x            |
+| master | 1.19.4  | v0.19.4          | v0.19.4             | 1.17.x, 1.18.x, 1.19.x            |
+| 1.5.1  | 1.18.8  | v0.18.8          | v0.18.8             | 1.17.x, 1.18.x, 1.19.x            |
 | 1.4.4  | 1.17.7  | v0.17.0          | v0.17.0             | 1.16.x, 1.17.x, 1.18.x            |
 | 1.3.0  | 1.15.10 | v12.0.0          | release-1.15        | 1.15.x, 1.16.x, 1.17.x            |
 | 1.2.0  | 1.13.6  | v10.0.0          | release-1.13        | 1.12.x, 1.13.x, 1.14.x            |
@@ -65,7 +67,7 @@ or Slack notifications:
 
 ```console
 latest=$(curl -s https://api.github.com/repos/weaveworks/kured/releases | jq -r .[0].tag_name)
-kubectl apply -f "https://github.com/weaveworks/kured/releases/download/$latest/kured-$latest-dockerhub.yaml
+kubectl apply -f "https://github.com/weaveworks/kured/releases/download/$latest/kured-$latest-dockerhub.yaml"
 ```
 
 If you want to customise the installation, download the manifest and
@@ -77,7 +79,7 @@ The following arguments can be passed to kured via the daemonset pod template:
 
 ```console
 Flags:
-      --annotation-ttl time                  force clean annotation after this ammount of time (default 0, disabled)
+      --lock-ttl time                       force clean annotation after this ammount of time (default 0, disabled)
       --alert-filter-regexp regexp.Regexp   alert names to ignore when checking for active alerts
       --blocking-pod-selector stringArray   label selector identifying pods whose presence should prevent reboots
       --drain-grace-period int64            period of time to wait for node drain in seconds (default -1)
@@ -96,6 +98,8 @@ Flags:
       --slack-channel string                slack channel for reboot notfications
       --slack-hook-url string               slack hook URL for reboot notfications
       --slack-username string               slack username for reboot notfications (default "kured")
+      --message-template-drain string       message template used to notify about a node being drained (default "Draining node %s")
+      --message-template-reboot string      message template used to notify about a node being rebooted (default "Rebooting node %s")
       --start-time string                   only reboot after this time of day (default "0:00")
       --time-zone string                    use this timezone to calculate allowed reboot time (default "UTC")
 ```
@@ -220,6 +224,11 @@ you immediately prior to rebooting a node:
 We recommend setting `--slack-username` to be the name of the
 environment, e.g. `dev` or `prod`.
 
+Alternatively you can use the `--message-template-drain` and `--message-template-reboot` to customize the text of the message, e.g.
+```
+--message-template-drain="Draining node %s part of *my-cluster* in region *xyz*"
+```
+
 ### Overriding Lock Configuration
 
 The `--ds-name` and `--ds-namespace` arguments should match the name and
@@ -274,12 +283,11 @@ kubectl -n kube-system annotate ds kured weave.works/kured-node-lock-
 In exceptional circumstances (especially when used with cluster-autoscaler) a node
 which holds lock might be killed thus annotation will stay there for ever.
 
-Using `--annotation-ttl=30m` will allow other nodes to take over if TTL has expired (in this case 30min) and continue reboot process.
+Using `--lock-ttl=30m` will allow other nodes to take over if TTL has expired (in this case 30min) and continue reboot process.
 
 ## Building
 
-See the [CircleCI config](.circleci/config.yml) for the preferred
-version of Golang. Kured now uses [Go
+Kured now uses [Go
 Modules](https://github.com/golang/go/wiki/Modules), so build
 instructions vary depending on where you have checked out the
 repository:
@@ -295,6 +303,8 @@ make
 ```console
 GO111MODULE=on make
 ```
+
+You can find the current preferred version of Golang in the [go.mod file](go.mod).
 
 If you are interested in contributing code to kured, please take a look at
 our [development][development] docs.

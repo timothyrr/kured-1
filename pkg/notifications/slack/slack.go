@@ -43,10 +43,12 @@ func notify(hookURL, username, channel, message string) error {
 	return nil
 }
 
-func NotifyDrain(hookURL, username, channel, nodeID string) error {
-	return notify(hookURL, username, channel, fmt.Sprintf("Draining node %s", nodeID))
+// NotifyDrain is the exposed way to notify of a drain event onto a slack chan
+func NotifyDrain(hookURL, username, channel, messageTemplate, nodeID string) error {
+	return notify(hookURL, username, channel, fmt.Sprintf(messageTemplate, nodeID))
 }
 
-func NotifyReboot(hookURL, username, channel, nodeID string) error {
-	return notify(hookURL, username, channel, fmt.Sprintf("Rebooting node %s", nodeID))
+// NotifyReboot is the exposed way to notify of a reboot event onto a slack chan
+func NotifyReboot(hookURL, username, channel, messageTemplate, nodeID string) error {
+	return notify(hookURL, username, channel, fmt.Sprintf(messageTemplate, nodeID))
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -12,9 +13,11 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	kubectldrain "k8s.io/kubectl/pkg/drain"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -29,28 +32,29 @@ var (
 	version = "unreleased"
 
 	// Command line flags
-	forceDrain       bool
-	forceReboot      bool
-	forceTimeout     time.Duration
-	period           time.Duration
-	drainGracePeriod int64
-	dsNamespace      string
-	dsName           string
-	lockAnnotation   string
-	prometheusURL    string
-	alertFilter      *regexp.Regexp
-	rebootSentinel   string
-	slackHookURL     string
-	slackUsername    string
-	slackChannel     string
-	podSelectors     []string
+	period                 time.Duration
+	drainGracePeriod       int64
+	dsNamespace            string
+	dsName                 string
+	forceDrain             bool
+	forceReboot            bool
+	forceTimeout           time.Duration
+	lockAnnotation         string
+	lockTTL                time.Duration
+	prometheusURL          string
+	alertFilter            *regexp.Regexp
+	rebootSentinel         string
+	slackHookURL           string
+	slackUsername          string
+	slackChannel           string
+	messageTemplateDrain   string
+	messageTemplateReboot  string
+	podSelectors           []string
 
 	rebootDays  []string
 	rebootStart string
 	rebootEnd   string
 	timezone    string
-
-	annotationTTL time.Duration
 
 	// Metrics
 	rebootRequiredGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -86,6 +90,8 @@ func main() {
 		"name of daemonset on which to place lock")
 	rootCmd.PersistentFlags().StringVar(&lockAnnotation, "lock-annotation", "weave.works/kured-node-lock",
 		"annotation in which to record locking node")
+	rootCmd.PersistentFlags().DurationVar(&lockTTL, "lock-ttl", 0,
+		"expire lock annotation after this duration (default: 0, disabled)")
 	rootCmd.PersistentFlags().StringVar(&prometheusURL, "prometheus-url", "",
 		"Prometheus instance to probe for active alerts")
 	rootCmd.PersistentFlags().Var(&regexpValue{&alertFilter}, "alert-filter-regexp",
@@ -99,6 +105,10 @@ func main() {
 		"slack username for reboot notfications")
 	rootCmd.PersistentFlags().StringVar(&slackChannel, "slack-channel", "",
 		"slack channel for reboot notfications")
+	rootCmd.PersistentFlags().StringVar(&messageTemplateDrain, "message-template-drain", "Draining node %s",
+		"message template used to notify about a node being drained")
+	rootCmd.PersistentFlags().StringVar(&messageTemplateReboot, "message-template-reboot", "Rebooting node %s",
+		"message template used to notify about a node being rebooted")
 
 	rootCmd.PersistentFlags().StringArrayVar(&podSelectors, "blocking-pod-selector", nil,
 		"label selector identifying pods whose presence should prevent reboots")
@@ -111,9 +121,6 @@ func main() {
 		"schedule reboot only before this time of day")
 	rootCmd.PersistentFlags().StringVar(&timezone, "time-zone", "UTC",
 		"use this timezone for schedule inputs")
-
-	rootCmd.PersistentFlags().DurationVar(&annotationTTL, "annotation-ttl", 0,
-		"force clean annotation after this ammount of time (default 0, disabled)")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatal(err)
@@ -161,10 +168,9 @@ func rebootRequired() bool {
 	if sentinelExists() {
 		log.Infof("Reboot required")
 		return true
-	} else {
-		log.Infof("Reboot not required")
-		return false
 	}
+	log.Infof("Reboot not required")
+	return false
 }
 
 func rebootBlocked(client *kubernetes.Clientset, nodeID string) bool {
@@ -186,7 +192,7 @@ func rebootBlocked(client *kubernetes.Clientset, nodeID string) bool {
 
 	fieldSelector := fmt.Sprintf("spec.nodeName=%s", nodeID)
 	for _, labelSelector := range podSelectors {
-		podList, err := client.CoreV1().Pods("").List(metav1.ListOptions{
+		podList, err := client.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{
 			LabelSelector: labelSelector,
 			FieldSelector: fieldSelector,
 			Limit:         10})
@@ -244,60 +250,54 @@ func release(lock *daemonsetlock.DaemonSetLock) {
 	}
 }
 
-func drain(nodeID string) {
-	log.Infof("Draining node %s", nodeID)
+func drain(client *kubernetes.Clientset, node *v1.Node) {
+	nodename := node.GetName()
+
+	log.Infof("Draining node %s", nodename)
 
 	if slackHookURL != "" {
-		if err := slack.NotifyDrain(slackHookURL, slackUsername, slackChannel, nodeID); err != nil {
+		if err := slack.NotifyDrain(slackHookURL, slackUsername, slackChannel, messageTemplateDrain, nodename); err != nil {
 			log.Warnf("Error notifying slack: %v", err)
 		}
 	}
 
-	drainCmd := newCommand("/usr/bin/kubectl", "drain",
-		"--ignore-daemonsets", "--delete-local-data", "--grace-period", strconv.FormatInt(drainGracePeriod, 10), fmt.Sprintf("--force=%t", forceDrain), nodeID)
-
-	if err := drainCmd.Start(); err != nil {
-		log.Fatalf("Error invoking drain command: %v", err)
+	drainer := &kubectldrain.Helper{
+		Client:              client,
+		GracePeriodSeconds:  drainGracePeriod,
+		Force:               forceDrain,
+		DeleteLocalData:     true,
+		IgnoreAllDaemonSets: true,
+		Timeout:             forceReboot,
+		ErrOut:              os.Stderr,
+		Out:                 os.Stdout,
+	}
+	if err := kubectldrain.RunCordonOrUncordon(drainer, node, true); err != nil {
+		log.Fatal("Error cordonning %s: %v", nodename, err)
 	}
 
-	if forceReboot == true {
-        done := make(chan error)
-        go func() {
-        	done <- drainCmd.Wait()
-        }()
-
-        select {
-	    case err := <-done:
-	        if err != nil {
-	        	log.Fatalf("Error invoking drain command: %v", err)
-	        }
-	    case <-time.After(forceTimeout):
-	    	// The drain command did not finish within the given time so we kill it,
-	    	// and force a reboot
-	    	drainCmd.Process.Kill()
-
-	    	log.Errorf("Drain command took longer than specified timeout (%s) so it was killed", forceTimeout)
-		}
-	} else {
-	    if err := drainCmd.Wait(); err != nil {
-	    	log.Fatalf("Error invoking drain command: %v", err)
-	    }
+	if err := kubectldrain.RunNodeDrain(drainer, nodename); err != nil {
+		log.Fatal("Error draining %s: %v", nodename, err)
 	}
 }
 
-func uncordon(nodeID string) {
-	log.Infof("Uncordoning node %s", nodeID)
-	uncordonCmd := newCommand("/usr/bin/kubectl", "uncordon", nodeID)
-	if err := uncordonCmd.Run(); err != nil {
-		log.Fatalf("Error invoking uncordon command: %v", err)
+func uncordon(client *kubernetes.Clientset, node *v1.Node) {
+	nodename := node.GetName()
+	log.Infof("Uncordoning node %s", nodename)
+	drainer := &kubectldrain.Helper{
+		Client: client,
+		ErrOut: os.Stderr,
+		Out:    os.Stdout,
+	}
+	if err := kubectldrain.RunCordonOrUncordon(drainer, node, false); err != nil {
+		log.Fatal("Error uncordonning %s: %v", nodename, err)
 	}
 }
 
 func commandReboot(nodeID string) {
-	log.Infof("Commanding reboot")
+	log.Infof("Commanding reboot for node: %s", nodeID)
 
 	if slackHookURL != "" {
-		if err := slack.NotifyReboot(slackHookURL, slackUsername, slackChannel, nodeID); err != nil {
+		if err := slack.NotifyReboot(slackHookURL, slackUsername, slackChannel, messageTemplateReboot, nodeID); err != nil {
 			log.Warnf("Error notifying slack: %v", err)
 		}
 	}
@@ -341,16 +341,20 @@ func rebootAsRequired(nodeID string, window *timewindow.TimeWindow, TTL time.Dur
 	nodeMeta := nodeMeta{}
 	if holding(lock, &nodeMeta) {
 		if !nodeMeta.Unschedulable {
-			uncordon(nodeID)
+			node, err := client.CoreV1().Nodes().Get(context.TODO(), nodeID, metav1.GetOptions{})
+			if err != nil {
+				log.Fatal(err)
+			}
+			uncordon(client, node)
 		}
 		release(lock)
 	}
 
 	source := rand.NewSource(time.Now().UnixNano())
 	tick := delaytick.New(source, period)
-	for _ = range tick {
+	for range tick {
 		if window.Contains(time.Now()) && rebootRequired() && !rebootBlocked(client, nodeID) {
-			node, err := client.CoreV1().Nodes().Get(nodeID, metav1.GetOptions{})
+			node, err := client.CoreV1().Nodes().Get(context.TODO(), nodeID, metav1.GetOptions{})
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -358,7 +362,7 @@ func rebootAsRequired(nodeID string, window *timewindow.TimeWindow, TTL time.Dur
 
 			if acquire(lock, &nodeMeta, TTL) {
 				if !nodeMeta.Unschedulable {
-					drain(nodeID)
+					drain(client, node)
 				}
 				commandReboot(nodeID)
 				for {
@@ -385,16 +389,16 @@ func root(cmd *cobra.Command, args []string) {
 
 	log.Infof("Node ID: %s", nodeID)
 	log.Infof("Lock Annotation: %s/%s:%s", dsNamespace, dsName, lockAnnotation)
+	if lockTTL > 0 {
+		log.Infof("Lock TTL set, lock will expire after: %v", lockTTL)
+	} else {
+		log.Info("Lock TTL not set, lock will remain until being released")
+	}
 	log.Infof("Reboot Sentinel: %s every %v", rebootSentinel, period)
 	log.Infof("Blocking Pod Selectors: %v", podSelectors)
 	log.Infof("Reboot on: %v", window)
-	if annotationTTL > 0 {
-		log.Infof("Force annotation cleanup after: %v", annotationTTL)
-	} else {
-		log.Info("Force annotation cleanup disabled.")
-	}
 
-	go rebootAsRequired(nodeID, window, annotationTTL)
+	go rebootAsRequired(nodeID, window, lockTTL)
 	go maintainRebootRequiredMetric(nodeID)
 
 	http.Handle("/metrics", promhttp.Handler())

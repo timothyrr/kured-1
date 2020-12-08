@@ -36,14 +36,14 @@ The following changes have been made compared to the stable chart:
 | Config                  | Description                                                                 | Default                    |
 | ------                  | -----------                                                                 | -------                    |
 | `image.repository`      | Image repository                                                            | `weaveworks/kured` |
-| `image.tag`             | Image tag                                                                   | `1.4.4`                    |
+| `image.tag`             | Image tag                                                                   | `1.5.1`                    |
 | `image.pullPolicy`      | Image pull policy                                                           | `IfNotPresent`             |
 | `image.pullSecrets`     | Image pull secrets                                                          | `[]`                       |
 | `updateStrategy`        | Daemonset update strategy                                                   | `OnDelete`                 |
 | `podAnnotations`        | Annotations to apply to pods (eg to add Prometheus annotations)             | `{}`                       |
 | `extraArgs`             | Extra arguments to pass to `/usr/bin/kured`. See below.                     | `{}`                       |
 | `extraEnvVars`          | Array of environment variables to pass to the daemonset.                    | `{}`                       |
-| `configuration.annotationTtl` | cli-parameter `--annotation-ttl`                                      | `0`                       |
+| `configuration.lockTtl` | cli-parameter `--lock-ttl`                                                  | `0`                       |
 | `configuration.alertFilterRegexp` | cli-parameter `--alert-filter-regexp`                             | `""`                       |
 | `configuration.blockingPodSelector` | Array of selectors for multiple cli-parameters `--blocking-pod-selector` | `[]`             |
 | `configuration.endTime` | cli-parameter `--end-time`                                                  | `""`                      |
@@ -55,6 +55,8 @@ The following changes have been made compared to the stable chart:
 | `configuration.slackChannel` | cli-parameter `--slack-channel`                                        | `""`                      |
 | `configuration.slackHookUrl` | cli-parameter `--slack-hook-url`                                       | `""`                      |
 | `configuration.slackUsername` | cli-parameter `--slack-username`                                      | `""`                      |
+| `configuration.messageTemplateDrain` | cli-parameter `--message-template-drain`                       | `""`                      |
+| `configuration.messageTemplateReboot` | cli-parameter `--message-template-reboot`                     | `""`                      |
 | `configuration.startTime` | cli-parameter `--start-time`                                              | `""`                      |
 | `configuration.timeZone` | cli-parameter `--time-zone`                                                | `""`                      |
 | `rbac.create`           | Create RBAC roles                                                           | `true`                     |
@@ -86,7 +88,7 @@ becomes `/usr/bin/kured ... --foo=1 --bar-baz=2`.
 
 ## Prometheus Metrics
 
-Kured exposes a single prometheus metric indicating whether a reboot is required or not (see [kured docs](https://github.com/weaveworks/kured#prometheus-metrics)) for details. 
+Kured exposes a single prometheus metric indicating whether a reboot is required or not (see [kured docs](https://github.com/weaveworks/kured#prometheus-metrics)) for details.
 
 #### Prometheus-Operator
 

@@ -1,6 +1,7 @@
 package daemonsetlock
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -10,6 +11,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// DaemonSetLock holds all necessary information to do actions
+// on the kured ds which holds lock info through annotations.
 type DaemonSetLock struct {
 	client     *kubernetes.Clientset
 	nodeID     string
@@ -25,13 +28,15 @@ type lockAnnotationValue struct {
 	TTL      time.Duration `json:"TTL"`
 }
 
+// New creates a daemonsetLock object containing the necessary data for follow up k8s requests
 func New(client *kubernetes.Clientset, nodeID, namespace, name, annotation string) *DaemonSetLock {
 	return &DaemonSetLock{client, nodeID, namespace, name, annotation}
 }
 
+// Acquire attempts to annotate the kured daemonset with lock info from instantiated DaemonSetLock using client-go
 func (dsl *DaemonSetLock) Acquire(metadata interface{}, TTL time.Duration) (acquired bool, owner string, err error) {
 	for {
-		ds, err := dsl.client.AppsV1().DaemonSets(dsl.namespace).Get(dsl.name, metav1.GetOptions{})
+		ds, err := dsl.client.AppsV1().DaemonSets(dsl.namespace).Get(context.TODO(), dsl.name, metav1.GetOptions{})
 		if err != nil {
 			return false, "", err
 		}
@@ -43,11 +48,9 @@ func (dsl *DaemonSetLock) Acquire(metadata interface{}, TTL time.Duration) (acqu
 				return false, "", err
 			}
 
-			if ttlExpired(value.Created, value.TTL) {
-				return true, value.NodeID, nil
+			if !ttlExpired(value.Created, value.TTL) {
+				return value.NodeID == dsl.nodeID, value.NodeID, nil
 			}
-
-			return value.NodeID == dsl.nodeID, value.NodeID, nil
 		}
 
 		if ds.ObjectMeta.Annotations == nil {
@@ -60,7 +63,7 @@ func (dsl *DaemonSetLock) Acquire(metadata interface{}, TTL time.Duration) (acqu
 		}
 		ds.ObjectMeta.Annotations[dsl.annotation] = string(valueBytes)
 
-		_, err = dsl.client.AppsV1().DaemonSets(dsl.namespace).Update(ds)
+		_, err = dsl.client.AppsV1().DaemonSets(dsl.namespace).Update(context.TODO(), ds, metav1.UpdateOptions{})
 		if err != nil {
 			if se, ok := err.(*errors.StatusError); ok && se.ErrStatus.Reason == metav1.StatusReasonConflict {
 				// Something else updated the resource between us reading and writing - try again soon
@@ -74,8 +77,9 @@ func (dsl *DaemonSetLock) Acquire(metadata interface{}, TTL time.Duration) (acqu
 	}
 }
 
+// Test attempts to check the kured daemonset lock status (existence, expiry) from instantiated DaemonSetLock using client-go
 func (dsl *DaemonSetLock) Test(metadata interface{}) (holding bool, err error) {
-	ds, err := dsl.client.AppsV1().DaemonSets(dsl.namespace).Get(dsl.name, metav1.GetOptions{})
+	ds, err := dsl.client.AppsV1().DaemonSets(dsl.namespace).Get(context.TODO(), dsl.name, metav1.GetOptions{})
 	if err != nil {
 		return false, err
 	}
@@ -87,19 +91,18 @@ func (dsl *DaemonSetLock) Test(metadata interface{}) (holding bool, err error) {
 			return false, err
 		}
 
-		if ttlExpired(value.Created, value.TTL) {
-			return true, nil
+		if !ttlExpired(value.Created, value.TTL) {
+			return value.NodeID == dsl.nodeID, nil
 		}
-
-		return value.NodeID == dsl.nodeID, nil
 	}
 
 	return false, nil
 }
 
+// Release attempts to remove the lock data from the kured ds annotations using client-go
 func (dsl *DaemonSetLock) Release() error {
 	for {
-		ds, err := dsl.client.AppsV1().DaemonSets(dsl.namespace).Get(dsl.name, metav1.GetOptions{})
+		ds, err := dsl.client.AppsV1().DaemonSets(dsl.namespace).Get(context.TODO(), dsl.name, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
@@ -110,7 +113,8 @@ func (dsl *DaemonSetLock) Release() error {
 			if err := json.Unmarshal([]byte(valueString), &value); err != nil {
 				return err
 			}
-			if value.NodeID != dsl.nodeID && !ttlExpired(value.Created, value.TTL) {
+
+			if value.NodeID != dsl.nodeID {
 				return fmt.Errorf("Not lock holder: %v", value.NodeID)
 			}
 		} else {
@@ -119,7 +123,7 @@ func (dsl *DaemonSetLock) Release() error {
 
 		delete(ds.ObjectMeta.Annotations, dsl.annotation)
 
-		_, err = dsl.client.AppsV1().DaemonSets(dsl.namespace).Update(ds)
+		_, err = dsl.client.AppsV1().DaemonSets(dsl.namespace).Update(context.TODO(), ds, metav1.UpdateOptions{})
 		if err != nil {
 			if se, ok := err.(*errors.StatusError); ok && se.ErrStatus.Reason == metav1.StatusReasonConflict {
 				// Something else updated the resource between us reading and writing - try again soon
