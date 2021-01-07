@@ -17,7 +17,7 @@ DEPS=$(call godeps,./cmd/kured)
 
 cmd/kured/kured: $(DEPS)
 cmd/kured/kured: cmd/kured/*.go
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=$(VERSION)" -o $@ cmd/kured/*.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-X main.version=$(VERSION)" -o $@ cmd/kured/*.go
 
 build/.image.done: cmd/kured/Dockerfile cmd/kured/kured
 	mkdir -p build
